@@ -37,6 +37,13 @@ export class GameScene extends Phaser.Scene {
     // Jump state: 2 jumps available, refreshed whenever the player is grounded.
     this.maxJumps = 2
     this.jumpsUsed = 0
+    // Coyote window: for a few frames after leaving the ground (e.g. walking off
+    // a ledge) the first press still counts as a real ground jump.
+    this.coyoteMs = 100
+    this.lastGroundedAt = 0
+    // Jump buffer: a press slightly before landing still fires on touchdown.
+    this.bufferMs = 120
+    this.jumpBufferedAt = -1000
 
     this.coins = this.physics.add.group({ allowGravity: false })
     this.spawnCoins()
@@ -72,12 +79,21 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  update() {
+  update(time) {
     const left = this.cursors.left.isDown || this.keys.A.isDown
     const right = this.cursors.right.isDown || this.keys.D.isDown
+    const grounded = this.player.body.blocked.down
+    const inCoyote = time - this.lastGroundedAt < this.coyoteMs
 
-    if (this.player.body.blocked.down && this.jumpsUsed !== 0) {
-      this.jumpsUsed = 0
+    if (grounded) {
+      this.lastGroundedAt = time
+      if (this.jumpsUsed !== 0) {
+        this.jumpsUsed = 0
+        this.refreshJumpUi()
+      }
+    } else if (this.jumpsUsed === 0 && !inCoyote) {
+      // Walked or fell off a ledge: the ground jump is spent, one air jump left.
+      this.jumpsUsed = 1
       this.refreshJumpUi()
     }
 
@@ -85,14 +101,22 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.JustDown(this.cursors.up) ||
       Phaser.Input.Keyboard.JustDown(this.keys.W) ||
       Phaser.Input.Keyboard.JustDown(this.keys.SPACE)
+    if (jumpPressed) this.jumpBufferedAt = time
 
     if (left) this.player.setVelocityX(-260)
     else if (right) this.player.setVelocityX(260)
     else this.player.setVelocityX(0)
 
-    if (jumpPressed && this.jumpsUsed < this.maxJumps) {
+    // A press is honoured for a moment after release, so jumping the instant
+    // you touch down (chaining double jumps) never feels dropped.
+    const buffered = time - this.jumpBufferedAt < this.bufferMs
+    const canGroundJump = grounded || inCoyote
+    const wantAirJump = this.jumpsUsed > 0
+
+    if (buffered && this.jumpsUsed < this.maxJumps && (wantAirJump || canGroundJump)) {
       const isDoubleJump = this.jumpsUsed > 0
       this.jumpsUsed++
+      this.jumpBufferedAt = -1000
       this.refreshJumpUi()
       this.player.setVelocityY(isDoubleJump ? -460 : -520)
       if (isDoubleJump) this.fx.doubleJump(this.player)
