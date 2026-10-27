@@ -3,6 +3,10 @@
 // To use real art, put PNGs in /assets and load them in preload().
 
 import { Fx } from '../fx.js'
+import { Rain } from '../rain.js'
+
+// HUD sits above every rain layer (front streaks are depth 200).
+const HUD_DEPTH = 400
 
 export class GameScene extends Phaser.Scene {
   constructor() {
@@ -24,11 +28,17 @@ export class GameScene extends Phaser.Scene {
     this.score = 0
     this.fx = new Fx(this)
 
+    // Top edges of every surface, so the rain can splash and ripple on them.
+    const surfaces = [{ x: 0, y: 520, w: 960 }]
+
     this.platforms = this.physics.add.staticGroup()
     for (let x = 32; x < 960; x += 64) this.platforms.create(x, 530, 'ground')
     ;[[200, 400], [460, 320], [720, 240], [300, 200]].forEach(([x, y]) => {
       for (let i = 0; i < 3; i++) this.platforms.create(x + i * 64, y, 'ground')
+      surfaces.push({ x: x - 32, y: y - 10, w: 192 })
     })
+
+    this.rain = new Rain(this, surfaces)
 
     this.player = this.physics.add.sprite(100, 450, 'player')
     this.player.setCollideWorldBounds(true)
@@ -56,20 +66,28 @@ export class GameScene extends Phaser.Scene {
 
     this.scoreText = this.add.text(16, 16, 'Score: 0', {
       fontFamily: 'system-ui, sans-serif', fontSize: '24px', color: '#ffffff'
-    })
-    this.add.text(16, 48, 'Arrows / WASD to move, Up / W / Space to jump (press again in mid-air to double jump)', {
+    }).setDepth(HUD_DEPTH)
+    this.add.text(16, 48, 'Arrows / WASD to move, Up / W / Space to jump (press again in mid-air to double jump), R for rain', {
       fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#9fb0cc'
-    })
+    }).setDepth(HUD_DEPTH)
 
     this.jumpPips = []
     for (let i = 0; i < this.maxJumps; i++) {
       const x = 920 - (this.maxJumps - 1 - i) * 26
-      this.jumpPips.push(this.add.circle(x, 28, 9, 0x4cc9f0).setAlpha(0.35))
+      this.jumpPips.push(this.add.circle(x, 28, 9, 0x4cc9f0).setAlpha(0.35).setDepth(HUD_DEPTH))
     }
     this.refreshJumpUi()
 
     this.cursors = this.input.keyboard.createCursorKeys()
-    this.keys = this.input.keyboard.addKeys('W,A,D,SPACE')
+    this.keys = this.input.keyboard.addKeys('W,A,D,SPACE,R')
+    this.input.keyboard.on('keydown-R', () => {
+      const on = this.rain.toggle()
+      this.weatherText.setText(on ? 'Weather: rain' : 'Weather: clear')
+    })
+
+    this.weatherText = this.add.text(16, 70, 'Weather: rain', {
+      fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#9fb0cc'
+    }).setDepth(HUD_DEPTH)
   }
 
   spawnCoins() {
@@ -79,7 +97,9 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  update(time) {
+  update(time, delta) {
+    this.rain.update(time, delta)
+
     const left = this.cursors.left.isDown || this.keys.A.isDown
     const right = this.cursors.right.isDown || this.keys.D.isDown
     const grounded = this.player.body.blocked.down
