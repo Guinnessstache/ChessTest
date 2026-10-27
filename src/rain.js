@@ -27,14 +27,25 @@ export class Rain {
       0xdff4ff, 1
     ).setDepth(300).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0)
 
-    this.lightningTimer = scene.time.addEvent({
-      delay: Phaser.Math.Between(7000, 14000),
-      loop: true,
-      callback: () => {
-        this.strike()
-        if (this.lightningTimer) this.lightningTimer.delayToNextCall(Phaser.Math.Between(9000, 20000))
-      }
+    // Phaser's TimerEvent can't change the delay of a repeating timer, so each
+    // strike is a one-shot that schedules the next random gap when it fires.
+    this.destroyed = false
+    this.lightningTimer = null
+    this.scheduleLightning()
+  }
+
+  scheduleLightning() {
+    const delay = Phaser.Math.Between(7000, 16000)
+    this.lightningTimer = this.scene.time.delayedCall(delay, () => {
+      if (this.destroyed) return
+      if (this.enabled) this.strike() // while the weather is off, strikes just skip
+      this.scheduleLightning()
     })
+  }
+
+  destroy() {
+    this.destroyed = true
+    if (this.lightningTimer) this.lightningTimer.remove()
   }
 
   makeTextures() {
@@ -172,10 +183,10 @@ export class Rain {
     this.enabled = !this.enabled
     if (this.enabled) {
       this.show()
-      this.lightningTimer.resume()
     } else {
-      this.lightningTimer.paused = true
       this.wind = 0
+      this.scene.tweens.killTweensOf(this.flash) // don't leave a half-played strike
+      this.flash.setAlpha(0)
       this.drops.forEach((d) => d.img.setVisible(false))
     }
     return this.enabled
